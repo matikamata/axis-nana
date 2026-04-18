@@ -1,0 +1,59 @@
+{
+  "corpus_id": "puredhamma",
+  "source_type": "wordpress_sql",
+  "source_file": "PureDhamma-backup_2025-12-31-T100216Z.zip",
+  "source_size_approx": "2.2GB",
+  "database": "beng_wp_21",
+  "extraction_pipeline": "SG phase (SG00 → SG04)",
+  "stages": {
+    "SG00_reset_workspace": {
+      "role": "Reset workspace — re-imports SQL dump into MySQL",
+      "input": "sources/*.zip (SQL inside ZIP)",
+      "output": "MySQL database beng_wp_21",
+      "destructive": true,
+      "guard": "requires manual confirmation unless BENG_AUTO_RESET=true"
+    },
+    "SG01_extract_html": {
+      "role": "Extract post HTML from WordPress MySQL database",
+      "input": "MySQL: beng_wp_21 (wp_posts table)",
+      "output": "09-csl/{PDPN}/source/en/content.html",
+      "record_count": 748,
+      "format": "raw WordPress HTML per post"
+    },
+    "SG02_preprocess_html": {
+      "role": "Clean and normalize extracted HTML",
+      "input": "09-csl/{PDPN}/source/en/content.html",
+      "output": "09-csl/{PDPN}/source/en/content.html (in-place)",
+      "operations": [
+        "iframe extraction and preservation",
+        "tag normalization",
+        "whitespace cleanup",
+        "encoding normalization (UTF-8)"
+      ],
+      "iframe_count_approx": 123
+    },
+    "SG03_build_csl": {
+      "role": "Build Canon Source Ledger (CSL) — structured JSON identity per post",
+      "input": "09-csl/{PDPN}/source/en/content.html",
+      "output": "09-csl/{PDPN}/identity.json",
+      "schema": "PDPN identity schema V3.1",
+      "fields": [
+        "pdpn",
+        "slug",
+        "title_en",
+        "title_pt",
+        "findex",
+        "section",
+        "schema_version"
+      ]
+    },
+    "SG04_harvest_assets": {
+      "role": "Harvest media assets from WordPress (audio, images)",
+      "input": "WordPress media library (requires WP runtime)",
+      "output": "09-csl/{PDPN}/assets/",
+      "passthrough_mode": "skipped if WP not available (non-blocking)"
+    }
+  },
+  "entry_id_format": "PDPN — Pattern: XX.XX.NNN (e.g. TL.BB.001)",
+  "pdpn_regex": "^[A-Z]{2}\\.[A-Z]{2}\\.\\d{3}$"
+}
