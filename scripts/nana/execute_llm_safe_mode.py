@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""AXIS NANA safe-mode LLM execution wrapper — Wave 2c.2.
+"""AXIS NANA safe-mode LLM execution wrapper — Wave 2c.3.
 
 Produces a deterministic execution result and, optionally, delegates to a
-safe offline provider (none or mock) via the router.
+provider via the router.
 
-No network calls.  No API keys.  No real LLM.  No cloud SDKs.
+Wave 2c.3 adds --allow-real-provider flag and gemini_vertex to ALLOWED_PROVIDERS.
+Real API calls remain blocked inside GeminiVertexProvider via
+REAL_CALLS_ENABLED_IN_THIS_WAVE = False.
+
+No network calls in this wave.  No API keys.  No real LLM.
 """
 
 from __future__ import annotations
@@ -25,14 +29,17 @@ if str(_REPO_ROOT) not in sys.path:
 
 from scripts.nana.providers.router import DEFAULT_PROVIDER, route  # noqa: E402
 
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 EXECUTION_TYPE = "llm_execution_safe_mode"
 EXECUTION_MODE = "safe_dry_run"
-WAVE = "wave2c2"
+WAVE = "wave2c3"
 
-ALLOWED_PROVIDERS = {"none", "mock"}
+# Safe offline providers always available; gemini_vertex is guarded —
+# its wave constant blocks real calls even if selected via CLI.
+ALLOWED_PROVIDERS = {"none", "mock", "gemini_vertex"}
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +140,17 @@ def _parse_args() -> argparse.Namespace:
             "and include its result in the output."
         ),
     )
+    parser.add_argument(
+        "--allow-real-provider",
+        action="store_true",
+        default=False,
+        help=(
+            "Pass allow_real=True to the router, enabling real provider routing. "
+            "In Wave 2c.3 real API calls remain blocked inside the provider itself "
+            "(REAL_CALLS_ENABLED_IN_THIS_WAVE=False). "
+            "Requires --run-provider."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -167,11 +185,13 @@ def main() -> int:
     # --- optionally call provider ---
     output_doc: dict = {"execution_result": execution}
     if args.run_provider:
+        allow_real: bool = getattr(args, "allow_real_provider", False)
         try:
             provider_result = route(
                 execution=execution,
                 provider_name=provider_name,
                 prompt_package=prompt_package,
+                allow_real=allow_real,
             )
         except ValueError as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
