@@ -1,0 +1,102 @@
+{
+  "registry_version": "bootstrap-v1",
+  "source": "local_seed_registry",
+  "concepts": [
+    {
+      "concept_id": "dukkha",
+      "label": "Dukkha",
+      "canonical_refs": [
+        "DS.II.003",
+        "IS.BB.005",
+        "TL.KK.003"
+      ],
+      "related_concepts": [
+        "tanha",
+        "avijja",
+        "paticca_samuppada"
+      ],
+      "status": "bootstrap_seed",
+      "notes": "Seed registry entry. Not doctrinally exhaustive."
+    },
+    {
+      "concept_id": "anicca",
+      "label": "Anicca",
+      "canonical_refs": [
+        "KD.FF.005",
+        "KD.CC.006",
+        "KD.BB.004"
+      ],
+      "related_concepts": [
+        "dukkha",
+        "nibbana",
+        "paticca_samuppada"
+      ],
+      "status": "bootstrap_seed",
+      "notes": "Seed registry entry. Not doctrinally exhaustive."
+    },
+    {
+      "concept_id": "nibbana",
+      "label": "Nibbana",
+      "canonical_refs": [
+        "BD.HH.007",
+        "KD.EE.004",
+        "TL.CC.006"
+      ],
+      "related_concepts": [
+        "anicca",
+        "tanha",
+        "avijja"
+      ],
+      "status": "bootstrap_seed",
+      "notes": "Seed registry entry. Not doctrinally exhaustive."
+    },
+    {
+      "concept_id": "paticca_samuppada",
+      "label": "Paticca Samuppada",
+      "canonical_refs": [
+        "DS.FF.003",
+        "KD.BB.004",
+        "PS.II.004"
+      ],
+      "related_concepts": [
+        "avijja",
+        "tanha",
+        "dukkha"
+      ],
+      "status": "bootstrap_seed",
+      "notes": "Seed registry entry. Not doctrinally exhaustive."
+    },
+    {
+      "concept_id": "tanha",
+      "label": "Tanha",
+      "canonical_refs": [
+        "DS.FF.002",
+        "DS.FF.006",
+        "PS.II.009"
+      ],
+      "related_concepts": [
+        "dukkha",
+        "avijja",
+        "nibbana"
+      ],
+      "status": "bootstrap_seed",
+      "notes": "Seed registry entry. Not doctrinally exhaustive."
+    },
+    {
+      "concept_id": "avijja",
+      "label": "Avijja",
+      "canonical_refs": [
+        "KD.HH.006",
+        "KD.HH.005",
+        "DS.FF.007"
+      ],
+      "related_concepts": [
+        "paticca_samuppada",
+        "tanha",
+        "dukkha"
+      ],
+      "status": "bootstrap_seed",
+      "notes": "Seed registry entry. Not doctrinally exhaustive."
+    }
+  ]
+}
