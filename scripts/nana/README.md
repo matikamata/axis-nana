@@ -72,3 +72,44 @@ python3 scripts/nana/execute_llm_safe_mode.py \
   --run-provider \
   --dry-run
 ```
+
+## Wave 2c.3 — Guarded Gemini/Vertex Provider Adapter
+
+Added in `feat/nana-wave2c3-gemini-vertex-guarded-20260426`.
+
+### New files
+
+- `scripts/nana/providers/gemini_vertex_provider.py` — guarded adapter skeleton; blocked at wave level
+
+### Modified files
+
+- `scripts/nana/providers/base_provider.py` — `ProviderResult` extended with traceability fields
+- `scripts/nana/providers/mock_provider.py` — populates new schema fields
+- `scripts/nana/providers/none_provider.py` — populates new schema fields
+- `scripts/nana/providers/router.py` — adds `_REAL_PROVIDERS` registry; `allow_real` gate
+- `scripts/nana/providers/__init__.py` — exports `GeminiVertexProvider`
+- `scripts/nana/execute_llm_safe_mode.py` — adds `--allow-real-provider` flag
+
+### Safety guarantees
+
+- **No real API calls in this wave** — `REAL_CALLS_ENABLED_IN_THIS_WAVE = False` is a compile-time constant; the real call path is physically unreachable
+- **Default provider unchanged** — `DEFAULT_PROVIDER = "none"`
+- **Real providers require explicit `allow_real=True`** — never reached by default
+- **6-condition gate** — all must be true for any future real call
+- **No secrets in repo** — credential path never hardcoded; env var names only
+- **Lazy SDK import** — `vertexai` not required at module import time
+- **mock/none regression baseline unchanged**
+
+### Env vars (values never committed)
+
+| Variable | Purpose |
+|---|---|
+| `AXIS_NANA_ALLOW_REAL_LLM` | Must be `"1"` to allow real LLM routing |
+| `AXIS_NANA_ALLOW_GEMINI_VERTEX` | Must be `"1"` to allow Gemini/Vertex |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to service account JSON (external only) |
+| `AXIS_NANA_GEMINI_MODEL` | Model override (default: `gemini-2.0-flash`) |
+
+### Future live smoke test
+
+Real API call activation requires a separate, explicitly authorised wave.
+Do not set `REAL_CALLS_ENABLED_IN_THIS_WAVE = True` without a new guarded PR.
