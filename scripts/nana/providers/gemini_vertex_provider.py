@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Guarded Gemini/Vertex provider skeleton for AXIS NANA Wave 2c.5d.
+"""Guarded Gemini/Vertex provider skeleton for AXIS NANA Wave 2c.5f.
 
-THIS WAVE DOES NOT MAKE REAL API CALLS.
+THIS WAVE IMPLEMENTS THE SINGLE-CALL PATH BUT EXECUTION REQUIRES ALL GATES.
 
 The adapter is structured, credential-aware, and fail-closed. Real calls
 require satisfying ALL of the explicit runtime gates.
@@ -14,9 +14,9 @@ Activation requirements (ALL must be true simultaneously):
   5. GOOGLE_APPLICATION_CREDENTIALS is set           (credential gate)
   6. credential file path is readable                (file gate)
 
-In Wave 2c.5d: REAL_CALLS_ENABLED_IN_THIS_WAVE = True, but the final
-network execution block is intentionally left unimplemented to prevent
-API calls during this preparation phase.
+In Wave 2c.5f: REAL_CALLS_ENABLED_IN_THIS_WAVE = True, and the final
+network execution block is implemented. Execution remains isolated and
+guarded by strict environment requirements.
 """
 
 from __future__ import annotations
@@ -99,8 +99,9 @@ def _blocked_result(
 class GeminiVertexProvider(BaseProvider):
     """Guarded Gemini/Vertex provider adapter.
 
-    All real API calls remain blocked in Wave 2c.5d because the network
-    implementation block explicitly raises NotImplementedError.
+    In Wave 2c.5f, the network implementation block is unlocked. However,
+    all execution is strictly gated behind mandatory explicit explicit flags
+    and environment configuration.
     """
 
     name = "gemini_vertex"
@@ -192,9 +193,51 @@ class GeminiVertexProvider(BaseProvider):
                 canonical_refs=canonical_refs,
             )
 
-        # Real call execution is explicitly blocked in Wave 2c.5d.
-        raise NotImplementedError(
-            "Gate logic passed securely. Real Gemini/Vertex network execution is "
-            "intentionally disabled in Wave 2c.5d to ensure zero accidental calls. "
-            "The client implementation will be finalized in a future authorized wave."
-        )
+        # Real call execution
+        try:
+            # We initialize using implicit environment credentials to avoid printing or logging secrets.
+            vertexai.init()
+            gen_model = GenerativeModel(model)
+            
+            prompt_text = prompt_package.get("prompt", "") if prompt_package else ""
+            if not prompt_text:
+                return _blocked_result(
+                    execution_id=execution_id,
+                    model=model,
+                    reason="empty_prompt",
+                    canonical_refs=canonical_refs,
+                )
+
+            # Conservative, deterministic generation config.
+            response = gen_model.generate_content(
+                prompt_text,
+                generation_config={"max_output_tokens": 1024, "temperature": 0.0}
+            )
+            raw_answer = response.text
+            
+            return ProviderResult(
+                provider="gemini_vertex",
+                provider_status="success",
+                provider_decision="GENERATED",
+                llm_called=True,
+                answer_generated=True,
+                simulated_answer=None,
+                model_requested=model,
+                provider_error=None,
+                raw_answer=raw_answer,
+                answer_quality_flag="raw",
+                provider_run_id=_provider_run_id(execution_id, "gemini_vertex", model),
+                provider_run_type="real_single_call_unapproved",
+                artifact_status="generated_unapproved",
+                canonical_status="non_canonical",
+                canonical_refs=canonical_refs,
+            )
+        except Exception as e:
+            # Catch all runtime execution errors and fail closed.
+            # Do not log the raw stack trace containing local paths or credential details.
+            return _blocked_result(
+                execution_id=execution_id,
+                model=model,
+                reason="api_execution_failed",
+                canonical_refs=canonical_refs,
+            )
