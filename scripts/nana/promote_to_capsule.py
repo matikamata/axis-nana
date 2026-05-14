@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""AXIS NANA — Wave 2c.4g — Fixture-Only Capsule Promotion Script.
+"""AXIS NANA — Capsule Promotion Script (Wave 2c.4g+).
 
 Promotes a validated NANA static artifact set from axis-nana-lab into
 the axis-niddhi-lab capsule input directory.
 
-THIS WAVE: --dry-run is required. No actual files are written.
+Modes:
+  --dry-run   Validate and plan only. No files written. (always safe)
+  --execute   Perform the real atomic copy after all guards pass.
+              Requires --fixture-only. Requires explicit operator decision.
 
-Future wave (explicit human approval required):
-  Omitting --dry-run will execute the atomic copy described in the
-  ATOMIC COPY STRATEGY section below.
-
-Usage (dry-run — this wave):
+Usage (dry-run):
     python3 scripts/nana/promote_to_capsule.py \\
         --source /home/sanghop/axis/axis-nana-lab/fixtures/nana/static_bridge_sample_v1/ \\
         --target /home/sanghop/axis/axis-niddhi-lab/pipeline/capsule/nana/ \\
@@ -18,22 +17,56 @@ Usage (dry-run — this wave):
         --dry-run \\
         [--include-readme]
 
-Hard constraints enforced at runtime:
+Usage (real copy — explicit operator approval required):
+    python3 scripts/nana/promote_to_capsule.py \\
+        --source /home/sanghop/axis/axis-nana-lab/fixtures/nana/static_bridge_sample_v1/ \\
+        --target /home/sanghop/axis/axis-niddhi-lab/pipeline/capsule/nana/ \\
+        --fixture-only \\
+        --execute \\
+        [--include-readme]
+
+Hard constraints enforced at runtime (both modes):
+  - Exactly one of --dry-run or --execute must be specified
   - Target must be under /home/sanghop/axis/axis-niddhi-lab/pipeline/capsule/
   - Target must NOT contain: niddhi-production, niddhi-published, bengyond-playground
   - Source must be under /home/sanghop/axis/axis-nana-lab/
   - Source under fixtures/ requires --fixture-only
+  - Source under outputs/ is refused (no --allow-generated flag yet)
   - All 13 validation gates from validate_promotion.py must pass before any copy
   - build.py is never called
+  - No external API calls, no providers
+
+Atomic copy strategy (--execute mode):
+  Step 1. Validate source (all 13 gates) → abort if any fails.
+  Step 2. tmp_dir = target.parent / "nana.tmp"
+          If tmp_dir exists → rmtree(tmp_dir)  [cleanup leftover]
+  Step 3. For each approved file:
+            dst = tmp_dir / rel_path
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src.read_bytes())
+          If any copy fails → rmtree(tmp_dir), abort.
+  Step 4. Re-validate tmp_dir/manifest.json (JSON parse only).
+          If fail → rmtree(tmp_dir), abort.
+  Step 5. If target.exists() → shutil.rmtree(target)
+  Step 6. tmp_dir.rename(target)
+  Step 7. Report: N files copied, target ready.
+          Print: "build.py NOT run — operator must approve separately."
+
+  This strategy ensures:
+    - The old capsule/nana/ is only removed after the new copy is 100% complete.
+    - A process kill leaves old target intact (tmp_dir is the staging area).
+    - No stale mixed artifacts can be served.
 
 Exit codes:
-  0 — dry-run passed all checks (this wave)
-  1 — any guard, path, or validation failure
+  0 — success (dry-run passed or execute completed)
+  1 — any guard, path, validation, or copy failure
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -50,7 +83,6 @@ if str(_SCRIPT_DIR) not in sys.path:
 try:
     from validate_promotion import (
         run_validation,
-        gate_source_exists,
         gate_manifest_exists,
         gate_manifest_parse,
         gate_artifacts_by_concept,
@@ -113,10 +145,6 @@ def _info(msg: str) -> None:
     print(f"  [INFO] {msg}")
 
 
-def _plan(msg: str) -> None:
-    print(f"  [PLAN] {msg}")
-
-
 def _warn(msg: str) -> None:
     print(f"  [WARN] {msg}")
 
@@ -129,7 +157,7 @@ def _guard_target(target: Path) -> tuple[bool, str]:
     """Return (ok, reason). Must be called before any write."""
     resolved = target.resolve()
 
-    # Forbidden substrings
+    # Forbidden substrings — checked against fully resolved path
     resolved_str = str(resolved)
     for forbidden in _FORBIDDEN_TARGET_SUBSTRINGS:
         if forbidden in resolved_str:
@@ -162,19 +190,20 @@ def _guard_source(source: Path, fixture_only: bool) -> tuple[bool, str]:
             f"  got:     {resolved}"
         )
 
-    # If source is under fixtures/, --fixture-only is required
     source_str = str(resolved)
+
+    # If source is under fixtures/, --fixture-only is required
     if "/fixtures/" in source_str and not fixture_only:
         return False, (
             "source is under fixtures/ but --fixture-only was not specified. "
             "Re-run with --fixture-only to confirm intent."
         )
 
-    # If source is under outputs/ (future generated artifacts), refuse unless explicitly flagged
+    # If source is under outputs/ (future generated artifacts), refuse
     if "/outputs/" in source_str:
         return False, (
             "source is under outputs/ (generated artifacts). "
-            "Generated artifact promotion is not enabled in this wave. "
+            "Generated artifact promotion is not enabled yet. "
             "A future --allow-generated flag will be required."
         )
 
@@ -224,19 +253,19 @@ def _collect_files(
 
         approved.append((rel_path_str, abs_path))
 
-    # Also include manifest.json itself (not always listed in artifacts_by_concept)
+    # Always include manifest.json (not always listed in artifacts_by_concept)
     manifest_path = source / "manifest.json"
     if manifest_path.is_file():
         manifest_entry = ("manifest.json", manifest_path)
         if manifest_entry not in approved:
             approved.insert(0, manifest_entry)
 
-    # README.md (optional)
+    # README.md (optional, only with --include-readme)
     if include_readme:
         readme = source / _README_NAME
         if readme.is_file():
             approved.append((_README_NAME, readme))
-            _info(f"README.md included via --include-readme")
+            _info("README.md included via --include-readme")
         else:
             _warn("--include-readme specified but README.md not found in source")
 
@@ -268,37 +297,75 @@ def _dry_run_report(
     print()
     print("  ╔══════════════════════════════════════════════════════════════╗")
     print("  ║  DRY RUN ONLY — no files copied, no directories created     ║")
-    print("  ║  No writes to axis-niddhi-lab in this wave.                 ║")
     print("  ║  build.py NOT run — operator must approve separately.       ║")
     print("  ╚══════════════════════════════════════════════════════════════╝")
 
 
 # ---------------------------------------------------------------------------
-# ATOMIC COPY STRATEGY (future wave — not executed here)
+# Atomic copy (--execute mode)
 # ---------------------------------------------------------------------------
-#
-# When --dry-run is absent (future human approval required), the script will:
-#
-# Step 1. Validate source (all 13 gates) → abort if any fails.
-# Step 2. tmp_dir = target.parent / "nana.tmp"
-#         If tmp_dir exists → rmtree(tmp_dir)  [cleanup leftover]
-# Step 3. For each approved file:
-#           dst = tmp_dir / rel_path
-#           dst.parent.mkdir(parents=True, exist_ok=True)
-#           dst.write_bytes(src.read_bytes())
-#         If any copy fails → rmtree(tmp_dir), abort.
-# Step 4. Re-validate tmp_dir/manifest.json (JSON parse only).
-#         If fail → rmtree(tmp_dir), abort.
-# Step 5. If target.exists() → shutil.rmtree(target)
-# Step 6. tmp_dir.rename(target)
-# Step 7. Report: N files copied, target ready.
-#         Print: "build.py NOT run — operator must approve separately."
-#
-# This strategy ensures:
-#   - The old capsule/nana/ is only removed after the new copy is 100% complete.
-#   - A process kill leaves target intact (tmp_dir is the staging area).
-#   - No stale mixed artifacts can be served.
-# ---------------------------------------------------------------------------
+
+def _execute_copy(
+    source: Path,
+    target: Path,
+    approved: list[tuple[str, Path]],
+) -> int:
+    """Perform the atomic tmp → rename copy. Returns 0 on success, 1 on failure."""
+    tmp_dir = target.parent / "nana.tmp"
+
+    _section("Atomic copy — execute mode")
+    print(f"\n  Source    : {source.resolve()}")
+    print(f"  Target    : {target.resolve()}")
+    print(f"  Temp dir  : {tmp_dir}")
+    print(f"  Files     : {len(approved)}")
+
+    # Step 2 — cleanup leftover tmp
+    if tmp_dir.exists():
+        _info(f"Removing leftover tmp dir: {tmp_dir}")
+        shutil.rmtree(tmp_dir)
+
+    # Step 3 — copy to tmp
+    _section("Copying files to tmp dir")
+    try:
+        for rel, src_path in approved:
+            dst = tmp_dir / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src_path.read_bytes())
+            print(f"  [COPY] {rel}  ({src_path.stat().st_size} bytes)")
+    except Exception as exc:  # noqa: BLE001
+        _info(f"Copy failed: {exc} — cleaning up tmp dir")
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
+        return _abort(f"Copy failed: {exc}")
+
+    # Step 4 — re-validate tmp manifest (JSON parse)
+    _section("Validating tmp/manifest.json")
+    tmp_manifest = tmp_dir / "manifest.json"
+    try:
+        json.loads(tmp_manifest.read_bytes().decode("utf-8"))
+        print("  [PASS] tmp/manifest.json is valid JSON")
+    except Exception as exc:  # noqa: BLE001
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
+        return _abort(f"tmp/manifest.json validation failed: {exc}")
+
+    # Step 5+6 — atomic replace
+    _section("Atomic replace")
+    if target.exists():
+        _info(f"Removing existing target: {target}")
+        shutil.rmtree(target)
+    tmp_dir.rename(target)
+    print(f"  [OK] {tmp_dir.name} → {target.name}")
+
+    # Step 7 — final report
+    _section("Promotion complete")
+    print(f"\n  ✅  {len(approved)} file(s) copied to {target.resolve()}")
+    print()
+    print("  ╔══════════════════════════════════════════════════════════════╗")
+    print("  ║  build.py NOT run — operator must approve separately.       ║")
+    print("  ║  No API calls made. No providers run.                       ║")
+    print("  ╚══════════════════════════════════════════════════════════════╝")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -308,8 +375,9 @@ def _dry_run_report(
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "AXIS NANA Wave 2c.4g — Fixture-only capsule promotion script. "
-            "In this wave, --dry-run is required. No files are written. "
+            "AXIS NANA — Capsule promotion script (Wave 2c.4g+). "
+            "Use --dry-run to validate and plan. "
+            "Use --execute to perform the real atomic copy. "
             "Does NOT run build.py. Does NOT call APIs. Does NOT run providers."
         )
     )
@@ -339,15 +407,25 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         help="Required when source is under fixtures/. Confirms fixture intent.",
     )
-    parser.add_argument(
+
+    mode_group = parser.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument(
         "--dry-run",
         action="store_true",
         default=False,
+        help="Validate and plan only — no files copied, no directories created.",
+    )
+    mode_group.add_argument(
+        "--execute",
+        action="store_true",
+        default=False,
         help=(
-            "Required in Wave 2c.4g. Validate and plan only — "
-            "no files copied, no directories created."
+            "Perform the real atomic copy. "
+            "Requires explicit operator approval. "
+            "All 13 validation gates run first. Fail-closed."
         ),
     )
+
     parser.add_argument(
         "--include-readme",
         action="store_true",
@@ -360,17 +438,12 @@ def _parse_args() -> argparse.Namespace:
 def main() -> int:
     args = _parse_args()
 
-    print("=" * 70)
-    print("AXIS NANA — Fixture-Only Capsule Promotion — wave2c4g")
-    print(f"Mode : {'DRY-RUN — no writes' if args.dry_run else '⚠ LIVE MODE — writes enabled'}")
-    print("=" * 70)
+    mode_label = "DRY-RUN — no writes" if args.dry_run else "EXECUTE — real atomic copy"
 
-    # --- Wave 2c.4g enforcement: --dry-run required ---
-    if not args.dry_run:
-        return _abort(
-            "--dry-run is required in Wave 2c.4g. "
-            "Real promotion (without --dry-run) requires explicit approval in a future wave."
-        )
+    print("=" * 70)
+    print("AXIS NANA — Capsule Promotion — wave2c4g+")
+    print(f"Mode : {mode_label}")
+    print("=" * 70)
 
     source = Path(args.source)
     target = Path(args.target)
@@ -384,7 +457,7 @@ def main() -> int:
         )
     print("  [PASS] validate_promotion.py imported successfully")
 
-    # --- Guard: target path ---
+    # --- Guard: target path (before any write) ---
     _section("Target path guard")
     target_ok, target_reason = _guard_target(target)
     if not target_ok:
@@ -406,14 +479,12 @@ def main() -> int:
     val_exit = run_validation(source, dry_run=True)
     if val_exit != 0:
         return _abort(
-            "Validation failed. Promotion plan aborted. "
+            "Validation failed. Promotion aborted. "
             "Fix the artifact set and re-run."
         )
 
     # --- Collect approved files ---
     _section("Collecting approved files from manifest")
-
-    # Re-parse manifest to get resolved file list (gates already passed above)
     _, manifest_path = gate_manifest_exists(source)
     _, manifest_data = gate_manifest_parse(manifest_path)
     _, artifacts_by_concept = gate_artifacts_by_concept(manifest_data)
@@ -424,12 +495,15 @@ def main() -> int:
     if not approved:
         return _abort("No approved files found after collection. Nothing to promote.")
 
-    # --- Dry-run report ---
-    _dry_run_report(source, target, approved)
+    # --- Dispatch to dry-run or execute ---
+    if args.dry_run:
+        _dry_run_report(source, target, approved)
+        print(f"\n  Summary: {len(approved)} file(s) would be copied")
+        print("\n  ✅  DRY-RUN PASSED — artifact set is ready for promotion")
+        return 0
 
-    print(f"\n  Summary: {len(approved)} file(s) would be copied")
-    print("\n  ✅  DRY-RUN PASSED — artifact set is ready for future fixture promotion")
-    return 0
+    # --execute path
+    return _execute_copy(source, target, approved)
 
 
 if __name__ == "__main__":
