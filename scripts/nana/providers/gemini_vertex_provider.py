@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Guarded Gemini/Vertex provider skeleton for AXIS NANA Wave 2c.3.
+"""Guarded Gemini/Vertex provider skeleton for AXIS NANA Wave 2c.5d.
 
 THIS WAVE DOES NOT MAKE REAL API CALLS.
 
-The adapter is structured, credential-aware, and fail-closed, but all real
-execution paths are blocked by a compile-time constant and runtime guards.
-Cloud SDKs are imported lazily (inside the gated path) and are not required
-at module import time.
+The adapter is structured, credential-aware, and fail-closed. Real calls
+require satisfying ALL of the explicit runtime gates.
 
 Activation requirements (ALL must be true simultaneously):
   1. REAL_CALLS_ENABLED_IN_THIS_WAVE must be True   (compile-time gate)
@@ -16,8 +14,9 @@ Activation requirements (ALL must be true simultaneously):
   5. GOOGLE_APPLICATION_CREDENTIALS is set           (credential gate)
   6. credential file path is readable                (file gate)
 
-In Wave 2c.3: REAL_CALLS_ENABLED_IN_THIS_WAVE = False.
-No real call can happen even if all other conditions are met.
+In Wave 2c.5d: REAL_CALLS_ENABLED_IN_THIS_WAVE = True, but the final
+network execution block is intentionally left unimplemented to prevent
+API calls during this preparation phase.
 """
 
 from __future__ import annotations
@@ -30,10 +29,9 @@ from pathlib import Path
 from .base_provider import BaseProvider, ProviderResult
 
 # ---------------------------------------------------------------------------
-# Wave compile-time hard stop.
-# Change ONLY in a future wave with explicit human approval and a new PR.
+# Wave compile-time flag.
 # ---------------------------------------------------------------------------
-REAL_CALLS_ENABLED_IN_THIS_WAVE: bool = False
+REAL_CALLS_ENABLED_IN_THIS_WAVE: bool = True
 
 # ---------------------------------------------------------------------------
 # Env var names — values are never hardcoded here.
@@ -101,9 +99,8 @@ def _blocked_result(
 class GeminiVertexProvider(BaseProvider):
     """Guarded Gemini/Vertex provider adapter.
 
-    All real API calls are blocked in Wave 2c.3 via REAL_CALLS_ENABLED_IN_THIS_WAVE.
-    The class structure, gating logic, and ProviderResult schema are ready for
-    future activation in a subsequent wave with explicit human authorisation.
+    All real API calls remain blocked in Wave 2c.5d because the network
+    implementation block explicitly raises NotImplementedError.
     """
 
     name = "gemini_vertex"
@@ -128,7 +125,7 @@ class GeminiVertexProvider(BaseProvider):
             return _blocked_result(
                 execution_id=execution_id,
                 model=model,
-                reason="real_calls_disabled_in_wave_2c3",
+                reason="real_calls_disabled_in_current_wave",
                 canonical_refs=canonical_refs,
             )
 
@@ -182,7 +179,7 @@ class GeminiVertexProvider(BaseProvider):
         # ----------------------------------------------------------------
         # All gates passed — real call path.
         # Lazy SDK import: only reached if REAL_CALLS_ENABLED_IN_THIS_WAVE
-        # is True (currently False). SDK not required at module import time.
+        # is True. SDK not required at module import time.
         # ----------------------------------------------------------------
         try:
             import vertexai  # noqa: PLC0415 — intentional lazy import
@@ -195,9 +192,9 @@ class GeminiVertexProvider(BaseProvider):
                 canonical_refs=canonical_refs,
             )
 
-        # Real call — placeholder; will be fleshed out in a future wave.
-        # This branch is unreachable in Wave 2c.3.
-        raise RuntimeError(  # pragma: no cover
-            "Real Gemini/Vertex call path reached unexpectedly in Wave 2c.3. "
-            "Set REAL_CALLS_ENABLED_IN_THIS_WAVE = True only in a future authorised wave."
+        # Real call execution is explicitly blocked in Wave 2c.5d.
+        raise NotImplementedError(
+            "Gate logic passed securely. Real Gemini/Vertex network execution is "
+            "intentionally disabled in Wave 2c.5d to ensure zero accidental calls. "
+            "The client implementation will be finalized in a future authorized wave."
         )
