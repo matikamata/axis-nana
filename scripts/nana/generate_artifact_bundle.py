@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""AXIS NANA — Wave 2c.5a — Artifact Bundle Scaffold Generator.
+"""AXIS NANA — Wave 2c.5g1 — Artifact Bundle Scaffold Generator.
 
-Creates a promotion-validator-compatible artifact directory structure from offline data.
+Creates a promotion-validator-compatible artifact directory structure from offline data,
+or securely imports a raw execution JSON into a bundle while enforcing unapproved state.
+
 THIS SCRIPT DOES NOT CALL REAL PROVIDERS OR APIS.
 THIS SCRIPT DOES NOT READ CREDENTIALS.
 THIS SCRIPT DOES NOT SET display_allowed: true.
 
 Usage:
-    python3 scripts/nana/generate_artifact_bundle.py \\
-        --concept-id dukkha \\
-        --artifact-set-id dukkha-scaffold-v1 \\
-        --output-dir outputs/nana/ \\
+    python3 scripts/nana/generate_artifact_bundle.py \
+        --concept-id dukkha \
+        --artifact-set-id dukkha-scaffold-v1 \
+        --output-dir outputs/nana/ \
+        [--provider-result-file execution_result.json] \
         --dry-run
 """
 
@@ -90,6 +93,7 @@ def main() -> int:
     parser.add_argument("--concept-id", required=True)
     parser.add_argument("--artifact-set-id", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--provider-result-file", help="Path to a raw provider result JSON to import.", default=None)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -102,6 +106,36 @@ def main() -> int:
     provider_run = _build_provider_run(concept_id, set_id)
     council = _build_council(concept_id, set_id)
     validation = _build_validation(concept_id, set_id)
+
+    if args.provider_result_file:
+        res_path = Path(args.provider_result_file)
+        if not res_path.is_file():
+            print(f"[ERROR] Provider result file not found: {res_path}", file=sys.stderr)
+            return 1
+            
+        raw_res = json.loads(res_path.read_text(encoding="utf-8"))
+        
+        if "provider_result" in raw_res:
+            source_run = raw_res["provider_result"]
+            if "execution_result" in raw_res:
+                execution = raw_res["execution_result"]
+        else:
+            source_run = raw_res
+            
+        provider_run = source_run.copy()
+        
+        # Enforce strict safety gates over imported data
+        provider_run["artifact_status"] = "generated_unapproved"
+        
+        if provider_run.get("llm_called", False):
+            provider_run["provider_run_type"] = "real_single_call_unapproved"
+        else:
+            provider_run["provider_run_type"] = "offline_import_unapproved"
+            
+        validation["display_allowed"] = False
+        validation["status"] = "PENDING_HUMAN_APPROVAL"
+        validation["answer_validation_status"] = "PENDING_HUMAN_APPROVAL"
+        validation["artifact_status"] = "generated_unapproved"
 
     if args.dry_run:
         print(f"[DRY-RUN] Would create bundle at {out_dir}")
