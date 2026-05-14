@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""AXIS NANA — Wave 2c.5e — First Vertex Call Preflight Harness
+"""AXIS NANA — Wave 2c.5g.0 — First Vertex Call Preflight Harness
 
 This script performs strict environmental checks to ensure that the system
-is perfectly prepared for the first real API call but STILL securely blocked
-from executing it.
+is perfectly prepared for the first real API call. Since the network layer
+was unlocked in Wave 2c.5f, this script now verifies that the execution
+path remains strictly bounded and properly gated.
 
 It does NOT execute any API calls.
 It does NOT read or print any credential values.
@@ -31,7 +32,7 @@ def _pass(msg: str) -> None:
 
 def main() -> int:
     print("=" * 60)
-    print("AXIS NANA — Wave 2c.5e — Preflight Harness")
+    print("AXIS NANA — Wave 2c.5g.0 — Preflight Harness")
     print("=" * 60)
 
     # 1. Target check
@@ -65,7 +66,7 @@ def main() -> int:
     
     _pass(f"{ENV_GOOGLE_CREDS} points to a valid, readable file.")
 
-    # 5. Check gemini_vertex_provider.py for the NotImplementedError blocker
+    # 5. Check gemini_vertex_provider.py for post-unlock guardrails
     script_dir = Path(__file__).resolve().parent
     provider_path = script_dir / "providers" / "gemini_vertex_provider.py"
     
@@ -73,13 +74,32 @@ def main() -> int:
         _fail(f"Provider file not found: {provider_path}")
         
     provider_code = provider_path.read_text(encoding="utf-8")
-    if "raise NotImplementedError(" not in provider_code:
-        _fail("gemini_vertex_provider.py is missing the NotImplementedError network blocker.")
     
-    _pass("Provider script confirmed to contain the NotImplementedError network blocker.")
+    # 5a. Check that runtime gates are still intact
+    expected_gates = [
+        "enable_real_llm",
+        "AXIS_NANA_ALLOW_REAL_LLM",
+        "AXIS_NANA_ALLOW_GEMINI_VERTEX",
+        "GOOGLE_APPLICATION_CREDENTIALS"
+    ]
+    for gate in expected_gates:
+        if gate not in provider_code:
+            _fail(f"gemini_vertex_provider.py is missing runtime gate: {gate}")
+    
+    # 5b. Check that the provider contains a bounded single-call path
+    expected_call_markers = ["generate_content", "max_output_tokens", "temperature"]
+    for marker in expected_call_markers:
+        if marker not in provider_code:
+            _fail(f"gemini_vertex_provider.py is missing execution boundary marker: {marker}")
+            
+    # 5c. Check that the provider marks output as unapproved
+    if "generated_unapproved" not in provider_code and "real_single_call_unapproved" not in provider_code:
+        _fail("gemini_vertex_provider.py is missing unapproved output status markers.")
+    
+    _pass("Provider script confirmed to contain all post-unlock runtime guardrails.")
 
     print("=" * 60)
-    print("✅ PREFLIGHT SUCCESS: Environment is safe but securely blocked from execution.")
+    print("✅ PREFLIGHT SUCCESS: Environment is safe and ready for live execution.")
     print("=" * 60)
     return 0
 
