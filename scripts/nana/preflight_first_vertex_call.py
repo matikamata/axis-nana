@@ -65,6 +65,16 @@ def main() -> int:
         _fail("Credential file is not readable.")
     
     _pass(f"{ENV_GOOGLE_CREDS} points to a valid, readable file.")
+    
+    # 4b. Env check: GOOGLE_CLOUD_PROJECT
+    if not os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip():
+        _fail("Environment variable GOOGLE_CLOUD_PROJECT is empty or unset.")
+    _pass("GOOGLE_CLOUD_PROJECT is set.")
+    
+    # 4c. Env check: GOOGLE_CLOUD_LOCATION
+    if not os.environ.get("GOOGLE_CLOUD_LOCATION", "").strip():
+        _fail("Environment variable GOOGLE_CLOUD_LOCATION is empty or unset.")
+    _pass("GOOGLE_CLOUD_LOCATION is set.")
 
     # 5. Check gemini_vertex_provider.py for post-unlock guardrails
     script_dir = Path(__file__).resolve().parent
@@ -93,8 +103,12 @@ def main() -> int:
             _fail(f"gemini_vertex_provider.py is missing execution boundary marker: {marker}")
             
     # 5c. Check that the provider marks output as unapproved
-    if "generated_unapproved" not in provider_code and "real_single_call_unapproved" not in provider_code:
+    if "generated_unapproved" not in provider_code or "real_single_call_unapproved" not in provider_code:
         _fail("gemini_vertex_provider.py is missing unapproved output status markers.")
+        
+    # 5d. Check that display_allowed=true is NOT introduced
+    if "display_allowed=true" in provider_code.replace(" ", "").lower():
+        _fail("gemini_vertex_provider.py MUST NOT introduce display_allowed=True.")
     
     _pass("Provider script confirmed to contain all post-unlock runtime guardrails.")
 
