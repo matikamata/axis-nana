@@ -273,6 +273,67 @@ def gate_cot_markers(decoded: list[tuple[str, str]]) -> bool:
     return ok
 
 
+def gate_failed_provider_validation(parsed: list[tuple[str, dict]]) -> bool:
+    """
+    Gate 14: Failed provider validation.
+    Any non-fixture provider artifact must FAIL promotion validation if any of these are true:
+    - llm_called is not true
+    - provider_status is blocked / failed / error / offline / not success
+    - raw_answer is missing or empty
+    - provider_error is present
+    - provider_run_type indicates real provider execution but the result is empty or blocked
+    """
+    _section("Gate 14 — Failed provider validation")
+    ok = True
+
+    for rel, data in parsed:
+        if not isinstance(data, dict):
+            continue
+            
+        # Is this a provider artifact? Look for provider_status or provider_run_type
+        if "provider_status" not in data and "provider_run_type" not in data:
+            continue
+            
+        # Is it a fixture?
+        artifact_status = data.get("artifact_status", "")
+        if "fixture_only" in str(artifact_status):
+            _pass(f"{rel}: fixture artifact, bypassing provider success checks")
+            continue
+            
+        # Real provider validation
+        llm_called = data.get("llm_called")
+        provider_status = data.get("provider_status")
+        raw_answer = data.get("raw_answer")
+        provider_error = data.get("provider_error")
+        provider_run_type = data.get("provider_run_type", "")
+        
+        errors = []
+        
+        if llm_called is not True:
+            errors.append("llm_called is not true")
+            
+        if provider_status != "success":
+            errors.append(f"provider_status is {provider_status} (must be success)")
+            
+        if not raw_answer or not isinstance(raw_answer, str) or len(raw_answer.strip()) == 0:
+            errors.append("raw_answer is missing or empty")
+            
+        if provider_error is not None:
+            errors.append(f"provider_error is present: {provider_error}")
+            
+        if "real" in str(provider_run_type) and (not raw_answer or provider_status == "blocked"):
+            errors.append(f"provider_run_type is {provider_run_type} but result is blocked or empty")
+            
+        if errors:
+            for err in errors:
+                _fail(f"{rel}: {err}")
+            ok = False
+        else:
+            _pass(f"{rel}: valid successful provider execution")
+
+    return ok
+
+
 def gate_display_gating(
     parsed: list[tuple[str, dict]], source: Path
 ) -> bool:
@@ -441,6 +502,10 @@ def run_validation(source: Path, dry_run: bool) -> int:
     # Gate 13
     if parsed and not gate_display_gating(parsed, source):
         record_fail("display_gating")
+
+    # Gate 14
+    if parsed and not gate_failed_provider_validation(parsed):
+        record_fail("failed_provider_validation")
 
     # Final file counters
     counters["files_blocked"] = len(failures)
