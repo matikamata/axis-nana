@@ -195,11 +195,26 @@ class GeminiVertexProvider(BaseProvider):
 
         # Real call execution
         try:
+            # We require explicit project and location environment variables.
             # We initialize using implicit environment credentials to avoid printing or logging secrets.
-            vertexai.init()
+            cloud_project = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
+            cloud_location = os.environ.get("GOOGLE_CLOUD_LOCATION", "").strip()
+            
+            if not cloud_project or not cloud_location:
+                return _blocked_result(
+                    execution_id=execution_id,
+                    model=model,
+                    reason="missing_cloud_project_or_location",
+                    canonical_refs=canonical_refs,
+                )
+                
+            vertexai.init(project=cloud_project, location=cloud_location)
             gen_model = GenerativeModel(model)
             
-            prompt_text = prompt_package.get("prompt", "") if prompt_package else ""
+            prompt_text = ""
+            if prompt_package:
+                prompt_text = prompt_package.get("prompt", "") or prompt_package.get("user_prompt", "")
+            
             if not prompt_text:
                 return _blocked_result(
                     execution_id=execution_id,
